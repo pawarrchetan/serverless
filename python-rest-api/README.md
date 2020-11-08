@@ -64,7 +64,7 @@ export BASE_DOMAIN=https://850l3boqp4.execute-api.us-east-1.amazonaws.com/dev
 
 * Create User 
 ```
-$ curl -H "Content-Type: application/json" -X POST ${BASE_DOMAIN}/users -d '{"userId": "testbasin", "name": "Alex DeBrie"}'
+$ curl -H "Content-Type: application/json" -X POST ${BASE_DOMAIN}/users -d '{"userId": "testbasin", "name": "Test Basin"}'
 {
   "name": "Test Basin",
   "userId": "testbasin"
