@@ -1,0 +1,112 @@
+service:
+  name: serverlessdataapi
+
+provider:
+  name: aws
+  tracing:
+    apiGateway: true
+    lambda: true
+  runtime: nodejs12.x
+  timeout: 300
+  region: eu-central-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  deploymentBucket:
+    name: ${ssm:s3-deployment-files-bucket-name, ''}
+  deploymentPrefix: "${self:service}-${sls:instanceId}-${opt:stage, 'dev'}"
+  logRetentionInDays: ${self:custom.logRetentionInDays.${self:provider.stage}, 7}
+  apiGateway:
+    minimumCompressionSize: 1024
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "rds-data:DeleteItems"
+        - "rds-data:ExecuteSql"
+        - "rds-data:GetItems"
+        - "rds-data:InsertItems"
+        - "rds-data:UpdateItems"
+        - "rds-data:ExecuteStatement"
+      Resource:
+        - ${ssm:/aurora/cluster-arn}
+        - !Join 
+            - ''
+            - - ${ssm:/aurora/cluster-arn}
+              - ':*'
+    - Effect: "Allow"
+      Action: "secretsmanager:GetSecretValue"
+      Resource: 
+        - !GetAtt TestDatabase.SecretArn
+        - !Join
+          - ''
+          - - !GetAtt TestDatabase.SecretArn
+            - ':*'
+    - Effect: "Allow"
+      Action: 
+        - "logs:*"
+      Resource: 
+        - arn:aws:logs:*:*:*
+  environment:
+    DB_NAME: ${self:custom.AURORA.DB_NAME}
+    DBSECRETSSTOREARN: ${self:custom.AURORA.DBSECRETSSTOREARN}
+    DBAURORACLUSTERARN: ${self:custom.AURORA.DBAURORACLUSTERARN}
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+
+# Define variables here for visibility
+custom:
+  apiGatewayThrottling:
+    maxRequestsPerSecond: 200
+    maxConcurrentRequests: 50
+  stage: ${opt:stage, self:provider.stage}
+  determinedStage: ${opt:stage, 'dev'}
+  logRetentionInDays:
+    dev: 7
+    staging: 30
+    prod: 90
+  prune:
+    automatic: true
+    number: 3
+  AURORA:
+    DB_NAME: testdatabase
+    DBSECRETSSTOREARN: !GetAtt TestDatabase.SecretArn
+    DBAURORACLUSTERARN: ${ssm:/aurora/cluster-arn}
+
+
+plugins:
+  - serverless-api-gateway-throttling
+  - serverless-prune-plugin
+
+functions:
+  get:
+    handler: src/handler.handler
+    vpc:
+      securityGroupIds:
+        - sg-09d33fa93ba44330c
+      subnetIds:
+        ${ssm:/main-vpc/private-subnets~split}
+    events:
+     - http: 
+        path: /query
+        method: POST
+         
+resources:
+  Resources:
+    TestDatabase:
+      Type: Custom::ServerlessPostgresDatabase
+      Properties:
+        ServiceToken: ${ssm:/aurora/custom-resource-lambda-arn}
+        ClusterARN: ${ssm:/aurora/cluster-arn}
+        ClusterSecret: ${ssm:/aurora/master-secret-arn}
+        DatabaseName: testdatabase
+        DatabaseUser: test
+        SecretName: testdatabasesecret
+        Tags:
+            - Key: heritage
+              Value: cloudformation
+            - Key: environment
+              Value: ${self:custom.determinedStage}
+            - Key: service-name
+              Value: ${self:service}
+
+Outputs:
+  DatabaseSecret:
+    Value: !GetAtt TestDatabase.SecretArn
