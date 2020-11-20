@@ -1,0 +1,16 @@
+{
+  "name": "serverless-rds-data-api",
+  "version": "1.0.0",
+  "description": "Sample Serverless app to demonstrate Aurora Serverless Postgres RDS Cluster with Custom Resource and data-api",
+  "private": true,
+  "author": {
+    "name": "Chetan",
+    "email": "techtyphooon@gmail.com",
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "aws-sdk": "2.794.0",
+    "serverless-api-gateway-throttling": "1.0.2",
+    "serverless-prune-plugin": "1.4.3"
+  }
+}
