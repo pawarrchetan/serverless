@@ -31,7 +31,7 @@ There are two options for deployment:
 
 _If you require a DNS record to be created for your Cloudfront Distribution_
 
-- A Route53 Hosted Zone ID set as the `${r53hostedzoneid}` variable. e.g. `Z2xxxxDATAQYW2`
+- A Route53 Hosted Zone ID set as the `${ZONE_ID}` variable. e.g. `Z2xxxxDATAQYW2`
 
 # Without Route53 Record
 
