@@ -1,0 +1,11 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "demo-app"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-wdyl0mwg3de8"
+s3_prefix = "demo-app"
+region = "eu-central-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = ["HelloWorldFunction=912468240823.dkr.ecr.eu-central-1.amazonaws.com/demo-app-hello-world"]

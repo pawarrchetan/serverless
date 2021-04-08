@@ -1,0 +1,164 @@
+service: serverless-url-shortener
+frameworkVersion: "2"
+
+plugins:
+  - serverless-iam-roles-per-function
+  - serverless-plugin-typescript
+
+provider:
+  name: aws
+  runtime: nodejs14.x
+  profile: ${opt:profile, default}
+  region: ${opt:region, eu-west-2}
+  stage: dev
+  environment:
+    LINK_TABLE: !Ref LinkTable
+  apiGateway:
+    apiKeys:
+      - key-${self:custom.stage}
+
+custom:
+  stage: ${opt:stage, self:provider.stage}
+  r53HostedZone: ${opt:r53hosedzoneid}
+  domainName: ${opt:domainname}
+  acmCertArn: ${opt:acmcertarn}
+  createDNSRecord: ${opt:creatednsrecord}
+
+functions:
+  shorten-url:
+    handler: src/handlers/shorten-url/index.handler
+    events:
+      - http:
+          path: api/shorten
+          method: POST
+          private: true
+    environment:
+      OWNER_DOMAIN: ${self:custom.domainName}
+    iamRoleStatements:
+      - Effect: "Allow"
+        Action:
+          - dynamodb:PutItem
+        Resource:
+          - !GetAtt LinkTable.Arn
+
+  get-url:
+    handler: src/handlers/get-url/index.handler
+    events:
+      - http:
+          path: /{id}
+          method: GET
+    iamRoleStatements:
+      - Effect: "Allow"
+        Action:
+          - dynamodb:GetItem
+        Resource:
+          - !GetAtt LinkTable.Arn
+
+resources:
+  Conditions:
+    CreateRoute53Record: !Equals ["${self:custom.createDNSRecord}", "true"]
+
+  Resources:
+    LinkTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: url-shortener-links-${self:custom.stage}
+        BillingMode: PAY_PER_REQUEST
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        TimeToLiveSpecification:
+          AttributeName: expire
+          Enabled: true
+
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          ViewerCertificate:
+            AcmCertificateArn: ${self:custom.acmCertArn}
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2019
+          Origins:
+            - DomainName:
+                Fn::Join:
+                  - "."
+                  - - Ref: ApiGatewayRestApi
+                    - execute-api
+                    - Ref: AWS::Region
+                    - amazonaws.com
+              OriginPath: /${self:custom.stage}
+              Id: ${self:service}-${self:provider.region}-api-gw
+              CustomOriginConfig:
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+          HttpVersion: "http2"
+          Aliases:
+            - ${self:custom.domainName}
+          DefaultCacheBehavior:
+            CachePolicyId: !Ref CachePolicy
+            OriginRequestPolicyId: !Ref OriginRequestPolicy
+            AllowedMethods:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+            TargetOriginId: ${self:service}-${self:provider.region}-api-gw
+            ViewerProtocolPolicy: redirect-to-https
+
+    OriginRequestPolicy:
+      Type: AWS::CloudFront::OriginRequestPolicy
+      Properties:
+        OriginRequestPolicyConfig:
+          Name: !Sub "OriginRequestPolicy-${AWS::StackName}"
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers:
+              - x-api-key
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+    CachePolicy:
+      Type: AWS::CloudFront::CachePolicy
+      Properties:
+        CachePolicyConfig:
+          Comment: CachePolicy
+          Name: !Sub "CachePolicy-${AWS::StackName}"
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+          MinTTL: 1
+          ParametersInCacheKeyAndForwardedToOrigin:
+            CookiesConfig:
+              CookieBehavior: none
+            EnableAcceptEncodingGzip: true
+            HeadersConfig:
+              HeaderBehavior: whitelist
+              Headers:
+                - x-api-key
+            QueryStringsConfig:
+              QueryStringBehavior: none
+
+    DNSRecord:
+      Type: AWS::Route53::RecordSetGroup
+      Condition: CreateRoute53Record
+      Properties:
+        HostedZoneId: ${self:custom.r53HostedZone}
+        RecordSets:
+          - Name: ${self:custom.domainName}
+            Type: A
+            AliasTarget:
+              HostedZoneId: Z2FDTNDATAQYW2 #Cloudfront Zone ID always same
+              DNSName: !GetAtt CloudFrontDistribution.DomainName
+  Outputs:
+    CloudFrontDomain:
+      Description: The generated Cloudfront Domain
+      Value: !GetAtt CloudFrontDistribution.DomainName
